@@ -12,11 +12,7 @@ GSPO combines the stability of PPO with sequence-level optimizations that are pa
 ## Quick Start
 
 
-**Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd simple_GRPO/update
-   ```
+
 
 **Install dependencies**:
    ```bash
