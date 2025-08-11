@@ -35,7 +35,6 @@ GSPO combines the stability of PPO with sequence-level optimizations that are pa
 
 ## Reference
 
-The original GSPO paper: <mcreference link="https://arxiv.org/abs/2507.18071" index="1">1</mcreference>
 
 ```bibtex
 @article{zheng2024gspo,
