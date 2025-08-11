@@ -1,2 +1,47 @@
-# GSPO_gsm8k
-A toy implementation of GSPO from Qwen
+# GSPO: Group Sequence Policy Optimization
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+
+A toy implementation of **Group Sequence Policy Optimization (GSPO)** for training large language models on mathematical reasoning tasks using the GSM8K dataset.
+
+## Overview
+
+GSPO combines the stability of PPO with sequence-level optimizations that are particularly well-suited for tasks requiring coherent, multi-step reasoning rather than just token-by-token generation quality.
+
+## Quick Start
+
+
+**Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd simple_GRPO/update
+   ```
+
+**Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+
+
+### Training
+
+```bash
+./run.sh
+```
+
+
+
+## Reference
+
+The original GSPO paper: <mcreference link="https://arxiv.org/abs/2507.18071" index="1">1</mcreference>
+
+```bibtex
+@article{zheng2024gspo,
+  title={Group Sequence Policy Optimization},
+  author={Zheng, Chujie and Liu, Shixuan and Li, Mingze and Chen, Xiong-Hui and Yu, Bowen and Gao, Chang and Dang, Kai and Liu, Yuqiong and Men, Rui and Yang, An and Zhou, Jingren and Lin, Junyang},
+  journal={arXiv preprint arXiv:2507.18071},
+  year={2024}
+}
+```
