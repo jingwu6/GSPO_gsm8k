@@ -17,7 +17,7 @@ class GSPOConfig:
         
         # Training hyperparameters (optimized for 8x A6000 setup)
         self.beta = 0.04                    # KL penalty coefficient
-        self.all_steps = 200             # Total training steps
+        self.all_steps = 50              # Total training steps
         self.Q_batch_size = 8              # Questions per batch (increased for better GPU utilization)
         self.num_pre_Q = 8                 # Responses per question
         self.train_batch_size = 4          # Training batch size (increased for A6000)
@@ -25,7 +25,7 @@ class GSPOConfig:
         self.save_steps = 50               # Model save frequency
         self.test_freq = 10                # Test evaluation frequency
         self.compute_gen_logps = True      # Compute generation log probabilities
-        self.clip_param = 0.2              # PPO clipping parameter
+        self.clip_param = 0.01  # Increase from 0.05 to 0.2
         
         # Server configuration
         self.ref_server = "http://localhost:59875"
@@ -33,10 +33,10 @@ class GSPOConfig:
         # DeepSpeed configuration (optimized for 6x A6000 training GPUs)
         self.ds_config = {
             "train_micro_batch_size_per_gpu": self.train_batch_size,
-            "gradient_accumulation_steps": 8,  # Reduced since we have more GPUs
+            "gradient_accumulation_steps": 16,  # Reduced since we have more GPUs
             "optimizer": {
                 "type": "AdamW",
-                "params": {"lr": 1e-6}
+                "params": {"lr": 1e-6}  # Increase from 5e-7 to 1e-5
             },
             "bf16": {"enabled": True},
             "zero_optimization": {
@@ -128,6 +128,12 @@ class DataManager:
             
             if len(data_list) > 3:
                 batch['gen_logps'] = self.bytes_to_tensor(data_list[3])
+            
+            # Add separate reward components if available
+            if len(data_list) > 4:
+                batch['correct_rewards'] = self.bytes_to_tensor(data_list[4])
+            if len(data_list) > 5:
+                batch['format_rewards'] = self.bytes_to_tensor(data_list[5])
             
             return batch
         except Exception as e:
@@ -386,10 +392,15 @@ class GSPOTrainer:
                 import numpy as np
                 test_rewards = np.array(test_rewards)
                 
+                # In run_test_evaluation method, before creating enhanced_test_batch
+                print(f"Raw test rewards (before normalization): mean={test_rewards.mean():.3f}, std={test_rewards.std():.3f}")
+                
+                # Then normalize for training but keep original for logging
+                original_rewards = torch.tensor(test_rewards)
                 enhanced_test_batch = {
-                    'rewards': torch.tensor(test_rewards),
-                    'correct_rewards': torch.tensor(test_correct_rewards) if test_correct_rewards else torch.zeros_like(torch.tensor(test_rewards)),
-                    'format_rewards': torch.tensor(test_format_rewards) if test_format_rewards else torch.zeros_like(torch.tensor(test_rewards))
+                    'rewards': original_rewards,  # Use original instead of normalized
+                    'correct_rewards': torch.tensor(test_correct_rewards) if test_correct_rewards else torch.zeros_like(original_rewards),
+                    'format_rewards': torch.tensor(test_format_rewards) if test_format_rewards else torch.zeros_like(original_rewards)
                 }
                 
                 metrics = self.logger.log_metrics(step, batch=enhanced_test_batch, metrics_type='test')
@@ -407,7 +418,6 @@ class GSPOTrainer:
                 self.p.kill()
 
 def gen_worker(Q, physics_device=1, model_path=None, Q_batch_size=None, num_pre_Q=None, train_batch_size=None, compute_gen_logps=None):
-    """Generation worker process using vLLM for inference"""
     try:
         import vllm
         from vllm import LLM, SamplingParams
@@ -469,7 +479,11 @@ def gen_worker(Q, physics_device=1, model_path=None, Q_batch_size=None, num_pre_
             
             test_gsm8k = load_dataset("openai/gsm8k", "main", split="test")
             test_QAs = [(x['question'], x['answer']) for x in test_gsm8k]
+            
+            # Create fixed test set - use first Q_batch_size questions consistently
+            fixed_test_QAs = test_QAs[:Q_batch_size] if len(test_QAs) >= Q_batch_size else test_QAs
             print(f"[GEN WORKER] Loaded {len(QAs)} training and {len(test_QAs)} test samples")
+            print(f"[GEN WORKER] Using fixed test set of {len(fixed_test_QAs)} questions")
         except Exception as e:
             print(f"[GEN WORKER] Failed to load datasets: {e}")
             import traceback
@@ -566,7 +580,12 @@ The reasoning process and answer are enclosed within <think> </think> and<answer
             
             # Alternate between test and train data
             is_test_batch = it % 5 == 0
-            inputs = [{"Q": q, "A": a} for q, a in (random.sample(test_QAs, Q_batch_size) if is_test_batch else random.sample(QAs, Q_batch_size))]
+            # Use fixed test set instead of random sampling
+            if is_test_batch:
+                inputs = [{"Q": q, "A": a} for q, a in fixed_test_QAs]
+            else:
+                inputs = [{"Q": q, "A": a} for q, a in random.sample(QAs, Q_batch_size)]
+            
             tic = time.time()
             
             print(f"[GEN WORKER] Generating samples for iteration {it}, test_batch={is_test_batch}")
@@ -611,19 +630,27 @@ The reasoning process and answer are enclosed within <think> </think> and<answer
                     # Normalize rewards for group advantage
                     curr_rewards = (curr_rewards - curr_rewards.mean()) / (curr_rewards.std() + 1e-4)
                     for ii in range(0, num_pre_Q, train_batch_size):
-                       sub_rewards = curr_rewards[ii:ii+train_batch_size]
+                        sub_rewards = curr_rewards[ii:ii+train_batch_size]
                         sub_correct_rewards = curr_correct_rewards[ii:ii+train_batch_size]
                         sub_format_rewards = curr_format_rewards[ii:ii+train_batch_size]
+                        
+                        # Create merged_ids from answer token IDs
+                        sub_ans_ids = curr_ans_ids[ii:ii+train_batch_size]
+                        tensor_list = [torch.tensor(lst) for lst in sub_ans_ids]
+                        output_ids = pad_sequence(tensor_list, batch_first=True, padding_value=tokenizer.pad_token_id)
+                        Qrep = prompt_ids.repeat(1, output_ids.shape[0]).view(-1, plen)
+                        merged_ids = torch.cat([Qrep, output_ids], dim=1)
+                        
+                        # Create base_data with metadata
+                        base_data = {"plen": plen, "is_test": is_test_batch}
                         
                         data = [json.dumps(base_data).encode(), tensor_to_bytes(merged_ids), tensor_to_bytes(sub_rewards)]
                         
                         # Add separate reward components
-                        if len(curr_correct_rewards) > 0:
-                            data.append(tensor_to_bytes(sub_correct_rewards))
-                            data.append(tensor_to_bytes(sub_format_rewards))
+                        data.append(tensor_to_bytes(sub_correct_rewards))
+                        data.append(tensor_to_bytes(sub_format_rewards))
                         
                         if compute_gen_logps:
-                            data.append(tensor_to_bytes(gen_logps))
                             try:
                                 zz = vllm_gen.generate(prompt_token_ids=merged_ids.tolist(), 
                                                      sampling_params=gen_logps_sp, use_tqdm=False)

@@ -108,7 +108,15 @@ if __name__ == '__main__':
         per_token_logps = per_token_logps[:,prompt_length-1:]
         data = [json.dumps(d['base']).encode(), tensor_to_bytes(d['inputs']), 
                 tensor_to_bytes(d['rewards']), tensor_to_bytes(per_token_logps)]
-        if 'gen_logps' in d: data.append(tensor_to_bytes(d['gen_logps']))
+
+        # Add separate reward components if they exist
+        if 'correct_rewards' in d:
+            data.append(tensor_to_bytes(d['correct_rewards']))
+        if 'format_rewards' in d:
+            data.append(tensor_to_bytes(d['format_rewards']))
+            
+        if 'gen_logps' in d: 
+            data.append(tensor_to_bytes(d['gen_logps']))
         xdata = make_bytes_list(data)
         
         # Route to appropriate queue based on data type
