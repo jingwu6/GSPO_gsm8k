@@ -33,10 +33,10 @@ GSPO combines the stability of PPO with sequence-level optimizations that are pa
 
 
 ```bibtex
-@article{zheng2024gspo,
+@article{zheng2025group,
   title={Group Sequence Policy Optimization},
-  author={Zheng, Chujie and Liu, Shixuan and Li, Mingze and Chen, Xiong-Hui and Yu, Bowen and Gao, Chang and Dang, Kai and Liu, Yuqiong and Men, Rui and Yang, An and Zhou, Jingren and Lin, Junyang},
+  author={Zheng, Chujie and Liu, Shixuan and Li, Mingze and Chen, Xiong-Hui and Yu, Bowen and Gao, Chang and Dang, Kai and Liu, Yuqiong and Men, Rui and Yang, An and others},
   journal={arXiv preprint arXiv:2507.18071},
-  year={2024}
+  year={2025}
 }
 ```
